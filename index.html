@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Text Display</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    /* ── screens ─────────────────────────────── */
+    .screen {
+      display: none;
+      position: fixed;
+      inset: 0;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .screen.active { display: flex; }
+
+    /* ── input screen ────────────────────────── */
+    #screen-input {
+      gap: 20px;
+      background: #111;
+    }
+
+    #screen-input h1 {
+      font-size: 1.3rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: #eee;
+    }
+
+    textarea {
+      width: 100%;
+      max-width: 480px;
+      height: 120px;
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 1.1rem;
+      padding: 12px;
+      resize: none;
+      outline: none;
+      line-height: 1.5;
+      -webkit-appearance: none;
+    }
+    textarea::placeholder { color: #555; }
+    textarea:focus { border-color: #555; }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    label {
+      font-size: 0.85rem;
+      color: #aaa;
+      white-space: nowrap;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      accent-color: #fff;
+      height: 4px;
+      cursor: pointer;
+    }
+
+    #speed-display {
+      font-size: 0.9rem;
+      color: #ccc;
+      min-width: 42px;
+      text-align: right;
+    }
+
+    button.primary {
+      width: 100%;
+      max-width: 480px;
+      padding: 14px;
+      background: #fff;
+      color: #000;
+      border: none;
+      border-radius: 10px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: opacity 0.15s;
+    }
+    button.primary:active { opacity: 0.75; }
+
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      width: 100%;
+      max-width: 480px;
+    }
+    .btn-row button {
+      flex: 1;
+      padding: 13px;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: opacity 0.15s;
+    }
+    .btn-row button:active { opacity: 0.75; }
+    .btn-new  { background: #333; color: #fff; }
+    .btn-replay { background: #fff; color: #000; }
+
+    /* ── countdown screen ────────────────────── */
+    #screen-countdown {
+      background: #000;
+    }
+
+    #countdown-number {
+      font-size: min(60vw, 60vh);
+      font-weight: 700;
+      line-height: 1;
+      animation: pop 0.35s ease-out;
+    }
+
+    @keyframes pop {
+      0%   { transform: scale(1.4); opacity: 0; }
+      100% { transform: scale(1);   opacity: 1; }
+    }
+
+    /* ── display screen ──────────────────────── */
+    #screen-display {
+      background: #000;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #char-display {
+      font-size: min(88vw, 88vh);
+      font-weight: 700;
+      line-height: 1;
+      text-align: center;
+      word-break: break-all;
+      animation: fadein 0.1s ease-in;
+    }
+
+    @keyframes fadein {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    /* ── footer ──────────────────────────────── */
+    .credit {
+      position: fixed;
+      bottom: 10px;
+      width: 100%;
+      text-align: center;
+      font-size: 0.65rem;
+      color: #333;
+      letter-spacing: 0.05em;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Input screen ── -->
+  <div id="screen-input" class="screen active">
+    <h1>Text Display</h1>
+
+    <textarea id="text-input" placeholder="Enter text…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+
+    <div class="row">
+      <label for="speed-range">Speed</label>
+      <input type="range" id="speed-range" min="0.2" max="5" step="0.1" value="1" />
+      <span id="speed-display">1.0 s</span>
+    </div>
+
+    <button class="primary" id="btn-start">Start</button>
+  </div>
+
+  <!-- ── Countdown screen ── -->
+  <div id="screen-countdown" class="screen">
+    <div id="countdown-number">3</div>
+  </div>
+
+  <!-- ── Display screen ── -->
+  <div id="screen-display" class="screen">
+    <div id="char-display"></div>
+  </div>
+
+  <!-- credit shown on all screens -->
+  <div class="credit">Created By TN</div>
+
+  <script>
+    // ── state ────────────────────────────────────
+    let chars    = [];
+    let charIdx  = 0;
+    let interval = 1000; // ms per character
+    let timer    = null;
+
+    // ── elements ─────────────────────────────────
+    const screenInput     = document.getElementById('screen-input');
+    const screenCountdown = document.getElementById('screen-countdown');
+    const screenDisplay   = document.getElementById('screen-display');
+    const textInput       = document.getElementById('text-input');
+    const speedRange      = document.getElementById('speed-range');
+    const speedDisplay    = document.getElementById('speed-display');
+    const btnStart        = document.getElementById('btn-start');
+    const countdownNum    = document.getElementById('countdown-number');
+    const charDisplay     = document.getElementById('char-display');
+
+    // ── helpers ───────────────────────────────────
+    function showScreen(el) {
+      [screenInput, screenCountdown, screenDisplay].forEach(s => s.classList.remove('active'));
+      el.classList.add('active');
+    }
+
+    function getChars(text) {
+      // Correctly iterate over Unicode code points (handles emoji, CJK, etc.)
+      return [...text];
+    }
+
+    // ── speed control ─────────────────────────────
+    speedRange.addEventListener('input', () => {
+      const v = parseFloat(speedRange.value);
+      speedDisplay.textContent = v.toFixed(1) + ' s';
+      interval = Math.round(v * 1000);
+    });
+
+    // ── start flow ────────────────────────────────
+    btnStart.addEventListener('click', startFlow);
+
+    function startFlow() {
+      const text = textInput.value.trim();
+      if (!text) { textInput.focus(); return; }
+
+      chars   = getChars(text);
+      charIdx = 0;
+
+      showScreen(screenCountdown);
+      runCountdown(3);
+    }
+
+    function runCountdown(n) {
+      if (n === 0) {
+        showScreen(screenDisplay);
+        showNextChar();
+        return;
+      }
+
+      countdownNum.textContent = n;
+      // re-trigger animation
+      countdownNum.style.animation = 'none';
+      void countdownNum.offsetWidth;
+      countdownNum.style.animation = '';
+
+      timer = setTimeout(() => runCountdown(n - 1), 900);
+    }
+
+    function showNextChar() {
+      if (charIdx >= chars.length) {
+        onDisplayEnd();
+        return;
+      }
+
+      const ch = chars[charIdx++];
+      // reset animation
+      charDisplay.style.animation = 'none';
+      void charDisplay.offsetWidth;
+      charDisplay.style.animation = '';
+      charDisplay.textContent = ch;
+
+      timer = setTimeout(showNextChar, interval);
+    }
+
+    // ── end of display ────────────────────────────
+    function onDisplayEnd() {
+      // Return to input screen, keeping text & speed; add replay buttons
+      showInputScreenWithButtons();
+    }
+
+    function showInputScreenWithButtons() {
+      // Ensure replay/new buttons are present
+      if (!document.getElementById('btn-row')) {
+        const row = document.createElement('div');
+        row.className = 'btn-row';
+        row.id = 'btn-row';
+
+        const btnNew = document.createElement('button');
+        btnNew.className = 'btn-new';
+        btnNew.textContent = 'New Text';
+        btnNew.addEventListener('click', () => {
+          textInput.value = '';
+          textInput.focus();
+        });
+
+        const btnReplay = document.createElement('button');
+        btnReplay.className = 'btn-replay';
+        btnReplay.textContent = 'Replay';
+        btnReplay.addEventListener('click', startFlow);
+
+        row.appendChild(btnNew);
+        row.appendChild(btnReplay);
+
+        // Insert before the primary Start button
+        btnStart.replaceWith(row);
+        // Re-add Start below
+        row.after(btnStart);
+      }
+
+      showScreen(screenInput);
+    }
+
+    // Tap/click on display screen to skip to end early (optional convenience)
+    screenDisplay.addEventListener('click', () => {
+      if (timer) { clearTimeout(timer); timer = null; }
+      onDisplayEnd();
+    });
+  </script>
+</body>
+</html>
