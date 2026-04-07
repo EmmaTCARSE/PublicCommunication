@@ -218,11 +218,13 @@
 
   <script>
     // ── state ────────────────────────────────────
-    let chars      = [];
-    let charIdx    = 0;
-    let interval   = 1000; // ms per character
-    let timer      = null;
-    let exporting  = false;
+    let chars           = [];
+    let charIdx         = 0;
+    let interval        = 1000; // ms per character
+    let timer           = null;
+    let exporting       = false;
+    let countdownActive = false;
+    let cancelCountdown = null; // resolves the current countdown delay early
 
     // ── elements ─────────────────────────────────
     const screenInput   = document.getElementById('screen-input');
@@ -246,6 +248,18 @@
       return [...text];
     }
 
+    function delay(ms) {
+      return new Promise(r => setTimeout(r, ms));
+    }
+
+    // Like delay(), but stores a cancel hook so the countdown can be skipped early.
+    function cancelableDelay(ms) {
+      return new Promise(r => {
+        const t = setTimeout(r, ms);
+        cancelCountdown = () => { clearTimeout(t); r(); };
+      });
+    }
+
     // ── speed control ─────────────────────────────
     speedRange.addEventListener('input', () => {
       const v = parseFloat(speedRange.value);
@@ -256,7 +270,7 @@
     // ── start flow ────────────────────────────────
     btnStart.addEventListener('click', startFlow);
 
-    function startFlow() {
+    async function startFlow() {
       const text = textInput.value.trim();
       if (!text) { textInput.focus(); return; }
 
@@ -264,6 +278,22 @@
       charIdx = 0;
 
       showScreen(screenDisplay);
+
+      // 3 → 2 → 1 countdown before text starts.
+      // cancelableDelay lets the click handler resolve this early so the text
+      // display begins immediately when the user taps during the countdown.
+      countdownActive = true;
+      for (const n of ['3', '2', '1']) {
+        charDisplay.style.animation = 'none';
+        void charDisplay.offsetWidth;
+        charDisplay.style.animation = '';
+        charDisplay.textContent = n;
+        await cancelableDelay(interval);
+        if (!countdownActive) break; // user tapped — skip remaining numbers
+      }
+      countdownActive = false;
+      cancelCountdown = null;
+
       showNextChar();
     }
 
@@ -321,10 +351,18 @@
       showScreen(screenInput);
     }
 
-    // Tap/click on display screen to skip to end early (optional convenience)
+    // Tap/click on display screen behaviour:
+    //   During countdown → skip countdown, start text display immediately.
+    //   During text display → skip to end.
     screenDisplay.addEventListener('click', () => {
-      if (timer) { clearTimeout(timer); timer = null; }
-      onDisplayEnd();
+      if (countdownActive) {
+        countdownActive = false;
+        if (cancelCountdown) { cancelCountdown(); cancelCountdown = null; }
+        // startFlow will call showNextChar() after the cancelled delay resolves.
+      } else {
+        if (timer) { clearTimeout(timer); timer = null; }
+        onDisplayEnd();
+      }
     });
 
     // ── export video ──────────────────────────────
@@ -403,7 +441,7 @@
       btnExport.textContent = 'Export Video';
       exportStatus.textContent = '';
 
-      // Try Web Share API with files (iOS / macOS)
+      // Try Web Share API with files (iOS / macOS, Chrome Android)
       if (navigator.share && navigator.canShare) {
         const file = new File([blob], filename, { type: blob.type });
         if (navigator.canShare({ files: [file] })) {
@@ -427,6 +465,22 @@
       document.body.removeChild(a);
       // Keep the object URL alive long enough for the download to start
       setTimeout(() => URL.revokeObjectURL(url), 30000);
+
+      // Chrome / other browsers: show an explicit Share button so the user can
+      // open the native share sheet after the file has been saved to their device.
+      if (navigator.share) {
+        const shareBtn = document.createElement('button');
+        shareBtn.className = 'secondary';
+        shareBtn.style.cssText = 'margin-top:8px;max-width:480px;width:100%;';
+        shareBtn.textContent = 'Share…';
+        shareBtn.addEventListener('click', async () => {
+          try {
+            await navigator.share({ title: 'Text Display' });
+          } catch (e) { /* AbortError or not supported — ignore */ }
+          shareBtn.remove();
+        });
+        exportStatus.after(shareBtn);
+      }
     }
   </script>
 </body>
