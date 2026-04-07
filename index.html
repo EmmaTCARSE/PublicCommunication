@@ -292,7 +292,7 @@
         void charDisplay.offsetWidth;
         charDisplay.style.animation = '';
         charDisplay.textContent = n;
-        await cancelableDelay(interval);
+        await cancelableDelay(1000); // countdown is always 1 s per step (3 s total)
         if (!countdownActive) break; // user tapped — skip remaining numbers
       }
       countdownActive = false;
@@ -437,6 +437,7 @@
 
       const blob     = new Blob(chunks, { type: mimeType });
       const filename = `text-display.${ext}`;
+      const file     = new File([blob], filename, { type: blob.type });
 
       // Reset UI
       exporting = false;
@@ -445,45 +446,37 @@
       btnExport.textContent = 'Export Video';
       exportStatus.textContent = '';
 
-      // Try Web Share API with files (iOS / macOS, Chrome Android)
-      if (navigator.share && navigator.canShare) {
-        const file = new File([blob], filename, { type: blob.type });
-        if (navigator.canShare({ files: [file] })) {
-          try {
-            await navigator.share({ files: [file], title: 'Text Display' });
-            return;
-          } catch (e) {
-            if (e.name === 'AbortError') return; // user cancelled
-            // fall through to download on other errors
-          }
+      // Primary path: share the exported video file via the OS share sheet.
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: 'Text Display' });
+          return;
+        } catch (e) {
+          if (e.name === 'AbortError') return; // user cancelled
+          // fall through to show download button on other errors
         }
       }
 
-      // Fallback: trigger file download
-      const url = URL.createObjectURL(blob);
-      const a   = document.createElement('a');
-      a.href     = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      // Keep the object URL alive long enough for the download to start
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
-
-      // Chrome / other browsers: show an explicit Share button so the user can
-      // open the native share sheet after the file has been saved to their device.
-      if (navigator.share) {
-        const shareBtn = document.createElement('button');
-        shareBtn.className = 'secondary btn-share';
-        shareBtn.textContent = 'Share…';
-        shareBtn.addEventListener('click', async () => {
-          try {
-            await navigator.share({ title: 'Text Display' });
-          } catch (e) { /* AbortError or not supported — ignore */ }
-          shareBtn.remove();
-        });
-        exportStatus.after(shareBtn);
-      }
+      // Fallback: sharing is unavailable — show an optional Download button.
+      // Download is not triggered automatically; the user chooses when to download.
+      // Remove any previously added download button before creating a fresh one.
+      document.getElementById('btn-download')?.remove();
+      const dlBtn = document.createElement('button');
+      dlBtn.id        = 'btn-download';
+      dlBtn.className = 'secondary btn-share';
+      dlBtn.textContent = 'Download Video';
+      dlBtn.addEventListener('click', () => {
+        const url = URL.createObjectURL(blob);
+        const a   = document.createElement('a');
+        a.href     = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        dlBtn.remove();
+      });
+      exportStatus.after(dlBtn);
     }
   </script>
 </body>
