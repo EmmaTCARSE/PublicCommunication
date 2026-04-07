@@ -128,21 +128,33 @@
     .btn-new  { background: #333; color: #fff; }
     .btn-replay { background: #fff; color: #000; }
 
-    /* ── countdown screen ────────────────────── */
-    #screen-countdown {
-      background: #000;
+    button.secondary {
+      width: 100%;
+      max-width: 480px;
+      padding: 14px;
+      background: #1e1e1e;
+      color: #fff;
+      border: 1px solid #444;
+      border-radius: 10px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: opacity 0.15s;
+    }
+    button.secondary:active { opacity: 0.75; }
+    button.secondary:disabled { opacity: 0.35; cursor: default; }
+    button.primary:disabled { opacity: 0.35; cursor: default; }
+
+    .btn-share {
+      margin-top: 8px;
     }
 
-    #countdown-number {
-      font-size: min(60vw, 60vh);
-      font-weight: 700;
-      line-height: 1;
-      animation: pop 0.35s ease-out;
-    }
-
-    @keyframes pop {
-      0%   { transform: scale(1.4); opacity: 0; }
-      100% { transform: scale(1);   opacity: 1; }
+    #export-status {
+      font-size: 0.82rem;
+      color: #777;
+      min-height: 1.1em;
+      text-align: center;
     }
 
     /* ── display screen ──────────────────────── */
@@ -196,11 +208,8 @@
     </div>
 
     <button class="primary" id="btn-start">Start</button>
-  </div>
-
-  <!-- ── Countdown screen ── -->
-  <div id="screen-countdown" class="screen">
-    <div id="countdown-number">3</div>
+    <button class="secondary" id="btn-export" aria-label="Export video of text display">Export Video</button>
+    <div id="export-status"></div>
   </div>
 
   <!-- ── Display screen ── -->
@@ -213,31 +222,46 @@
 
   <script>
     // ── state ────────────────────────────────────
-    let chars    = [];
-    let charIdx  = 0;
-    let interval = 1000; // ms per character
-    let timer    = null;
+    let chars           = [];
+    let charIdx         = 0;
+    let interval        = 1000; // ms per character
+    let timer           = null;
+    let exporting       = false;
+    let countdownActive = false;
+    let cancelCountdown = null; // resolves the current countdown delay early
 
     // ── elements ─────────────────────────────────
-    const screenInput     = document.getElementById('screen-input');
-    const screenCountdown = document.getElementById('screen-countdown');
-    const screenDisplay   = document.getElementById('screen-display');
-    const textInput       = document.getElementById('text-input');
-    const speedRange      = document.getElementById('speed-range');
-    const speedDisplay    = document.getElementById('speed-display');
-    const btnStart        = document.getElementById('btn-start');
-    const countdownNum    = document.getElementById('countdown-number');
-    const charDisplay     = document.getElementById('char-display');
+    const screenInput   = document.getElementById('screen-input');
+    const screenDisplay = document.getElementById('screen-display');
+    const textInput     = document.getElementById('text-input');
+    const speedRange    = document.getElementById('speed-range');
+    const speedDisplay  = document.getElementById('speed-display');
+    const btnStart      = document.getElementById('btn-start');
+    const btnExport     = document.getElementById('btn-export');
+    const exportStatus  = document.getElementById('export-status');
+    const charDisplay   = document.getElementById('char-display');
 
     // ── helpers ───────────────────────────────────
     function showScreen(el) {
-      [screenInput, screenCountdown, screenDisplay].forEach(s => s.classList.remove('active'));
+      [screenInput, screenDisplay].forEach(s => s.classList.remove('active'));
       el.classList.add('active');
     }
 
     function getChars(text) {
       // Correctly iterate over Unicode code points (handles emoji, CJK, etc.)
       return [...text];
+    }
+
+    function delay(ms) {
+      return new Promise(r => setTimeout(r, ms));
+    }
+
+    // Like delay(), but stores a cancel hook so the countdown can be skipped early.
+    function cancelableDelay(ms) {
+      return new Promise(r => {
+        const t = setTimeout(r, ms);
+        cancelCountdown = () => { clearTimeout(t); r(); };
+      });
     }
 
     // ── speed control ─────────────────────────────
@@ -250,31 +274,31 @@
     // ── start flow ────────────────────────────────
     btnStart.addEventListener('click', startFlow);
 
-    function startFlow() {
+    async function startFlow() {
       const text = textInput.value.trim();
       if (!text) { textInput.focus(); return; }
 
       chars   = getChars(text);
       charIdx = 0;
 
-      showScreen(screenCountdown);
-      runCountdown(3);
-    }
+      showScreen(screenDisplay);
 
-    function runCountdown(n) {
-      if (n === 0) {
-        showScreen(screenDisplay);
-        showNextChar();
-        return;
+      // 3 → 2 → 1 countdown before text starts.
+      // cancelableDelay lets the click handler resolve this early so the text
+      // display begins immediately when the user taps during the countdown.
+      countdownActive = true;
+      for (const n of ['3', '2', '1']) {
+        charDisplay.style.animation = 'none';
+        void charDisplay.offsetWidth;
+        charDisplay.style.animation = '';
+        charDisplay.textContent = n;
+        await cancelableDelay(interval);
+        if (!countdownActive) break; // user tapped — skip remaining numbers
       }
+      countdownActive = false;
+      cancelCountdown = null;
 
-      countdownNum.textContent = n;
-      // re-trigger animation
-      countdownNum.style.animation = 'none';
-      void countdownNum.offsetWidth;
-      countdownNum.style.animation = '';
-
-      timer = setTimeout(() => runCountdown(n - 1), 900);
+      showNextChar();
     }
 
     function showNextChar() {
@@ -331,11 +355,136 @@
       showScreen(screenInput);
     }
 
-    // Tap/click on display screen to skip to end early (optional convenience)
+    // Tap/click on display screen behaviour:
+    //   During countdown → skip countdown, start text display immediately.
+    //   During text display → skip to end.
     screenDisplay.addEventListener('click', () => {
-      if (timer) { clearTimeout(timer); timer = null; }
-      onDisplayEnd();
+      if (countdownActive) {
+        countdownActive = false;
+        if (cancelCountdown) { cancelCountdown(); cancelCountdown = null; }
+        // startFlow will call showNextChar() after the cancelled delay resolves.
+      } else {
+        if (timer) { clearTimeout(timer); timer = null; }
+        onDisplayEnd();
+      }
     });
+
+    // ── export video ──────────────────────────────
+    btnExport.addEventListener('click', exportVideo);
+
+    async function exportVideo() {
+      if (exporting) return;
+      const text = textInput.value.trim();
+      if (!text) { textInput.focus(); return; }
+
+      if (!window.MediaRecorder) {
+        alert('Video recording is not supported in this browser.');
+        return;
+      }
+
+      const exportChars = getChars(text);
+      const SIZE = 1080;
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = SIZE;
+      canvas.height = SIZE;
+      const ctx = canvas.getContext('2d');
+
+      if (!canvas.captureStream) {
+        alert('Canvas capture is not supported in this browser.');
+        return;
+      }
+
+      // Pick best supported MIME type (.mp4 preferred for iOS/macOS)
+      const candidates = [
+        'video/mp4;codecs=avc1',
+        'video/mp4',
+        'video/webm;codecs=vp9',
+        'video/webm',
+      ];
+      const mimeType = candidates.find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+      const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
+
+      // UI: exporting state
+      exporting = true;
+      btnExport.disabled = true;
+      btnStart.disabled  = true;
+      btnExport.textContent = 'Exporting…';
+
+      const stream   = canvas.captureStream(30);
+      const recorder = new MediaRecorder(stream, { mimeType });
+      const chunks   = [];
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.start();
+
+      // Font fills ~80 % of the canvas height, matching the min(88vw,88vh) CSS display
+      const fontSize = Math.floor(SIZE * 0.8);
+      ctx.font         = `bold ${fontSize}px -apple-system, "Helvetica Neue", Arial, sans-serif`;
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+
+      for (let i = 0; i < exportChars.length; i++) {
+        exportStatus.textContent = `${i + 1} / ${exportChars.length}`;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, SIZE, SIZE);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(exportChars[i], SIZE / 2, SIZE / 2);
+        await new Promise(r => setTimeout(r, interval));
+      }
+
+      recorder.stop();
+      await new Promise(r => { recorder.onstop = r; });
+
+      const blob     = new Blob(chunks, { type: mimeType });
+      const filename = `text-display.${ext}`;
+
+      // Reset UI
+      exporting = false;
+      btnExport.disabled    = false;
+      btnStart.disabled     = false;
+      btnExport.textContent = 'Export Video';
+      exportStatus.textContent = '';
+
+      // Try Web Share API with files (iOS / macOS, Chrome Android)
+      if (navigator.share && navigator.canShare) {
+        const file = new File([blob], filename, { type: blob.type });
+        if (navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file], title: 'Text Display' });
+            return;
+          } catch (e) {
+            if (e.name === 'AbortError') return; // user cancelled
+            // fall through to download on other errors
+          }
+        }
+      }
+
+      // Fallback: trigger file download
+      const url = URL.createObjectURL(blob);
+      const a   = document.createElement('a');
+      a.href     = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Keep the object URL alive long enough for the download to start
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+
+      // Chrome / other browsers: show an explicit Share button so the user can
+      // open the native share sheet after the file has been saved to their device.
+      if (navigator.share) {
+        const shareBtn = document.createElement('button');
+        shareBtn.className = 'secondary btn-share';
+        shareBtn.textContent = 'Share…';
+        shareBtn.addEventListener('click', async () => {
+          try {
+            await navigator.share({ title: 'Text Display' });
+          } catch (e) { /* AbortError or not supported — ignore */ }
+          shareBtn.remove();
+        });
+        exportStatus.after(shareBtn);
+      }
+    }
   </script>
 </body>
 </html>
