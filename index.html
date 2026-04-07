@@ -146,6 +146,10 @@
     button.secondary:disabled { opacity: 0.35; cursor: default; }
     button.primary:disabled { opacity: 0.35; cursor: default; }
 
+    .btn-share {
+      margin-top: 8px;
+    }
+
     #export-status {
       font-size: 0.82rem;
       color: #777;
@@ -470,8 +474,7 @@
       // open the native share sheet after the file has been saved to their device.
       if (navigator.share) {
         const shareBtn = document.createElement('button');
-        shareBtn.className = 'secondary';
-        shareBtn.style.cssText = 'margin-top:8px;max-width:480px;width:100%;';
+        shareBtn.className = 'secondary btn-share';
         shareBtn.textContent = 'Share…';
         shareBtn.addEventListener('click', async () => {
           try {
