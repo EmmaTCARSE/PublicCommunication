@@ -126,7 +126,6 @@
     }
     .btn-row button:active { opacity: 0.75; }
     .btn-new  { background: #333; color: #fff; }
-    .btn-replay { background: #fff; color: #000; }
 
     button.secondary {
       width: 100%;
@@ -191,6 +190,84 @@
       letter-spacing: 0.05em;
       pointer-events: none;
     }
+
+    /* ── progress display ────────────────────── */
+    #progress-area {
+      position: fixed;
+      bottom: 36px;
+      left: 0;
+      right: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    #progress-fraction {
+      font-size: 0.9rem;
+      color: #444;
+      letter-spacing: 0.03em;
+    }
+
+    #progress-bar-container {
+      width: 60%;
+      max-width: 320px;
+      height: 3px;
+      background: #1a1a1a;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    #progress-bar {
+      height: 100%;
+      background: #444;
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.15s ease;
+    }
+
+    /* ── yes/no dialog ───────────────────────── */
+    #yn-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.88);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 28px;
+      z-index: 200;
+      gap: 28px;
+    }
+
+    #yn-message {
+      color: #eee;
+      font-size: 1rem;
+      text-align: center;
+      line-height: 1.6;
+      max-width: 360px;
+      white-space: pre-line;
+    }
+
+    #yn-btn-row {
+      display: flex;
+      gap: 16px;
+    }
+
+    #yn-btn-row button {
+      padding: 12px 36px;
+      border: none;
+      border-radius: 10px;
+      font-size: 1.05rem;
+      font-weight: 600;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: opacity 0.15s;
+    }
+    #yn-btn-row button:active { opacity: 0.75; }
+    #yn-yes { background: #fff; color: #000; }
+    #yn-no  { background: #333; color: #fff; }
   </style>
 </head>
 <body>
@@ -215,6 +292,12 @@
   <!-- ── Display screen ── -->
   <div id="screen-display" class="screen">
     <div id="char-display"></div>
+    <div id="progress-area">
+      <div id="progress-fraction"></div>
+      <div id="progress-bar-container">
+        <div id="progress-bar"></div>
+      </div>
+    </div>
   </div>
 
   <!-- credit shown on all screens -->
@@ -229,17 +312,21 @@
     let exporting       = false;
     let countdownActive = false;
     let cancelCountdown = null; // resolves the current countdown delay early
+    let displayTotal    = 0;   // total chars including 3·2·1
+    let displayPos      = 0;   // current 1-based position in the display sequence
 
     // ── elements ─────────────────────────────────
-    const screenInput   = document.getElementById('screen-input');
-    const screenDisplay = document.getElementById('screen-display');
-    const textInput     = document.getElementById('text-input');
-    const speedRange    = document.getElementById('speed-range');
-    const speedDisplay  = document.getElementById('speed-display');
-    const btnStart      = document.getElementById('btn-start');
-    const btnExport     = document.getElementById('btn-export');
-    const exportStatus  = document.getElementById('export-status');
-    const charDisplay   = document.getElementById('char-display');
+    const screenInput    = document.getElementById('screen-input');
+    const screenDisplay  = document.getElementById('screen-display');
+    const textInput      = document.getElementById('text-input');
+    const speedRange     = document.getElementById('speed-range');
+    const speedDisplay   = document.getElementById('speed-display');
+    const btnStart       = document.getElementById('btn-start');
+    const btnExport      = document.getElementById('btn-export');
+    const exportStatus   = document.getElementById('export-status');
+    const charDisplay    = document.getElementById('char-display');
+    const progressFrac   = document.getElementById('progress-fraction');
+    const progressBar    = document.getElementById('progress-bar');
 
     // ── helpers ───────────────────────────────────
     function showScreen(el) {
@@ -264,6 +351,48 @@
       });
     }
 
+    // Update the progress fraction and gauge on the display screen.
+    function updateProgress(pos, total) {
+      progressFrac.textContent = `${pos} / ${total}`;
+      progressBar.style.width  = total > 0 ? `${(pos / total) * 100}%` : '0%';
+    }
+
+    // Show a custom Yes / No dialog; resolves true for Yes, false for No.
+    function askYesNo(message) {
+      return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.id = 'yn-overlay';
+
+        const msg = document.createElement('p');
+        msg.id = 'yn-message';
+        msg.textContent = message;
+
+        const btnRow = document.createElement('div');
+        btnRow.id = 'yn-btn-row';
+
+        const btnYes = document.createElement('button');
+        btnYes.id = 'yn-yes';
+        btnYes.textContent = 'Yes';
+
+        const btnNo = document.createElement('button');
+        btnNo.id = 'yn-no';
+        btnNo.textContent = 'No';
+
+        function close(val) {
+          overlay.remove();
+          resolve(val);
+        }
+        btnYes.addEventListener('click', () => close(true));
+        btnNo.addEventListener('click',  () => close(false));
+
+        btnRow.appendChild(btnYes);
+        btnRow.appendChild(btnNo);
+        overlay.appendChild(msg);
+        overlay.appendChild(btnRow);
+        document.body.appendChild(overlay);
+      });
+    }
+
     // ── speed control ─────────────────────────────
     speedRange.addEventListener('input', () => {
       const v = parseFloat(speedRange.value);
@@ -281,6 +410,10 @@
       chars   = getChars(text);
       charIdx = 0;
 
+      // Total display length = 3 (countdown) + text chars
+      displayTotal = chars.length + 3;
+      displayPos   = 0;
+
       showScreen(screenDisplay);
 
       // 3 → 2 → 1 countdown before text starts.
@@ -288,6 +421,8 @@
       // display begins immediately when the user taps during the countdown.
       countdownActive = true;
       for (const n of ['3', '2', '1']) {
+        displayPos++;
+        updateProgress(displayPos, displayTotal);
         charDisplay.style.animation = 'none';
         void charDisplay.offsetWidth;
         charDisplay.style.animation = '';
@@ -308,6 +443,8 @@
       }
 
       const ch = chars[charIdx++];
+      displayPos = 3 + charIdx; // charIdx already incremented → 1-based position after countdown
+      updateProgress(displayPos, displayTotal);
       // reset animation
       charDisplay.style.animation = 'none';
       void charDisplay.offsetWidth;
@@ -324,7 +461,7 @@
     }
 
     function showInputScreenWithButtons() {
-      // Ensure replay/new buttons are present
+      // Ensure "New Text" button is present (added once after first playback)
       if (!document.getElementById('btn-row')) {
         const row = document.createElement('div');
         row.className = 'btn-row';
@@ -338,13 +475,7 @@
           textInput.focus();
         });
 
-        const btnReplay = document.createElement('button');
-        btnReplay.className = 'btn-replay';
-        btnReplay.textContent = 'Replay';
-        btnReplay.addEventListener('click', startFlow);
-
         row.appendChild(btnNew);
-        row.appendChild(btnReplay);
 
         // Insert before the primary Start button
         btnStart.replaceWith(row);
@@ -383,7 +514,7 @@
       }
 
       // Ask whether to include 3-2-1 countdown in the exported video
-      const withCountdown = confirm('エクスポートする動画に 3・2・1 のカウントダウンを含めますか？\nInclude 3-2-1 countdown in the exported video?');
+      const withCountdown = await askYesNo('エクスポートする動画に 3・2・1 のカウントダウンを含めますか？\nInclude 3-2-1 countdown in the exported video?');
 
       const exportChars = getChars(text);
       const SIZE = 1080;
@@ -461,37 +592,55 @@
       btnExport.textContent = 'Export Video';
       exportStatus.textContent = '';
 
-      // Primary path: share the exported video file via the OS share sheet.
-      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file], title: 'Text Display' });
-          return;
-        } catch (e) {
-          if (e.name === 'AbortError') return; // user cancelled
-          // fall through to show download button on other errors
-        }
+      // Remove any previously added share/download button.
+      document.getElementById('btn-share-video')?.remove();
+      document.getElementById('btn-download')?.remove();
+
+      // Show a Share or Download button so that navigator.share() is called from
+      // a direct user gesture (required by iOS Safari and other mobile browsers).
+      const actionBtn = document.createElement('button');
+      actionBtn.className = 'secondary btn-share';
+
+      const canShareFiles = navigator.share && navigator.canShare &&
+                            navigator.canShare({ files: [file] });
+
+      if (canShareFiles) {
+        actionBtn.id = 'btn-share-video';
+        actionBtn.textContent = 'Share Video';
+        actionBtn.addEventListener('click', async () => {
+          try {
+            await navigator.share({ files: [file], title: 'Text Display' });
+            actionBtn.remove();
+          } catch (e) {
+            if (e.name === 'AbortError') { actionBtn.remove(); return; }
+            // On unexpected error replace share button with a download button.
+            const dlBtn = document.createElement('button');
+            dlBtn.id = 'btn-download';
+            dlBtn.className = 'secondary btn-share';
+            dlBtn.textContent = 'Download Video';
+            dlBtn.addEventListener('click', () => triggerDownload(blob, filename, dlBtn));
+            actionBtn.replaceWith(dlBtn);
+          }
+        });
+      } else {
+        actionBtn.id = 'btn-download';
+        actionBtn.textContent = 'Download Video';
+        actionBtn.addEventListener('click', () => triggerDownload(blob, filename, actionBtn));
       }
 
-      // Fallback: sharing is unavailable — show an optional Download button.
-      // Download is not triggered automatically; the user chooses when to download.
-      // Remove any previously added download button before creating a fresh one.
-      document.getElementById('btn-download')?.remove();
-      const dlBtn = document.createElement('button');
-      dlBtn.id        = 'btn-download';
-      dlBtn.className = 'secondary btn-share';
-      dlBtn.textContent = 'Download Video';
-      dlBtn.addEventListener('click', () => {
-        const url = URL.createObjectURL(blob);
-        const a   = document.createElement('a');
-        a.href     = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        dlBtn.remove();
-      });
-      exportStatus.after(dlBtn);
+      exportStatus.after(actionBtn);
+    }
+
+    function triggerDownload(blob, filename, btn) {
+      const url = URL.createObjectURL(blob);
+      const a   = document.createElement('a');
+      a.href     = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      btn.remove();
     }
   </script>
 </body>
