@@ -203,7 +203,7 @@
 
     <div class="row">
       <label for="speed-range">Speed</label>
-      <input type="range" id="speed-range" min="0.2" max="5" step="0.1" value="1" />
+      <input type="range" id="speed-range" min="0.5" max="1.0" step="0.1" value="1" />
       <span id="speed-display">1.0 s</span>
     </div>
 
@@ -382,6 +382,9 @@
         return;
       }
 
+      // Ask whether to include 3-2-1 countdown in the exported video
+      const withCountdown = confirm('エクスポートする動画に 3・2・1 のカウントダウンを含めますか？\nInclude 3-2-1 countdown in the exported video?');
+
       const exportChars = getChars(text);
       const SIZE = 1080;
 
@@ -422,6 +425,18 @@
       ctx.font         = `bold ${fontSize}px -apple-system, "Helvetica Neue", Arial, sans-serif`;
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
+
+      // Render 3-2-1 countdown frames if the user opted in
+      if (withCountdown) {
+        for (const n of ['3', '2', '1']) {
+          exportStatus.textContent = `Countdown: ${n}`;
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, SIZE, SIZE);
+          ctx.fillStyle = '#fff';
+          ctx.fillText(n, SIZE / 2, SIZE / 2);
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
 
       for (let i = 0; i < exportChars.length; i++) {
         exportStatus.textContent = `${i + 1} / ${exportChars.length}`;
